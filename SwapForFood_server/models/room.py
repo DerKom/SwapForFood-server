@@ -1,33 +1,29 @@
-import random
 import json
-from models.user import User
-from typing import Dict, List
-from utils.restaurant_fetcher import fetch_restaurants
+import time
+from typing import List
+from .user import User
 
 class Room:
-    def __init__(self, code: str, leader: User):
-        self.code = code
-        self.leader = leader
-        self.leader.is_leader = True
-        self.users: List[User] = [leader]
-        self.game_started = False
+    def __init__(self):
+        self.users: List[User] = []
 
-    async def broadcast(self, message: dict):
-        # Envía un mensaje a todos los usuarios en la sala
-        for user in self.users:
-            try:
-                await user.websocket.send_text(json.dumps(message))
-            except Exception as e:
-                print(f"Error al enviar mensaje a {user.username}: {e}")
+    def add_user(self, user: User):
+        self.users.append(user)
 
-    async def start_game(self):
-        self.game_started = True
-        # Obtener restaurantes basados en la ubicación del líder
-        restaurants = fetch_restaurants(self.leader.location)
-        # Lógica para enviar restaurantes y manejar votaciones
-        for restaurant in restaurants:
-            await self.broadcast({"type": "restaurant", "data": restaurant})
-            # Aquí agregar lógica de votación y consenso
+    def remove_user(self, user: User):
+        if user in self.users:
+            self.users.remove(user)
+            # Si era líder y quedan usuarios, reasignar liderazgo
+            if user.is_leader and self.users:
+                self.users[0].is_leader = True
+                return self.users[0]
+        return None
+
+    def get_user_by_websocket(self, websocket):
+        for u in self.users:
+            if u.websocket == websocket:
+                return u
+        return None
 
     def get_user_by_username(self, username: str):
         for u in self.users:
@@ -35,59 +31,70 @@ class Room:
                 return u
         return None
 
-    def remove_user(self, user: User):
-        if user in self.users:
-            self.users.remove(user)
-            # Si se elimina el líder, reasignar líder al primer usuario si existe
-            if user.is_leader and len(self.users) > 0:
-                self.users[0].is_leader = True
-                return self.users[0]
-        return None
-
     def is_empty(self):
         return len(self.users) == 0
 
-class RoomManager:
-    def __init__(self):
-        self.rooms: Dict[str, Room] = {}
+    async def broadcast(self, message: str):
+        # Envía mensaje de texto a todos en la sala
+        for u in self.users:
+            try:
+                await u.websocket.send_text(message)
+            except:
+                pass
 
-    def generate_room_code(self) -> str:
-        while True:
-            code = str(random.randint(10000, 99999))
-            if code not in self.rooms:
-                return code
+    async def broadcast_json(self, data: dict):
+        msg = json.dumps(data)
+        await self.broadcast(msg)
 
-    async def create_room(self, leader: User) -> str:
-        code = self.generate_room_code()
-        room = Room(code, leader)
-        self.rooms[code] = room
-        return code
+    async def notify_room_closed(self):
+        message = "ROOM_CLOSED"
+        response = json.dumps({
+            "id": 0,
+            "message": message,
+            "timestamp": int(time.time() * 1000)
+        })
+        await self.broadcast(response)
 
-    def get_room(self, room_code: str):
-        return self.rooms.get(room_code)
+    async def notify_user_left(self, username: str):
+        message = f"USER_LEFT.{username}"
+        response = json.dumps({
+            "id": 0,
+            "message": message,
+            "timestamp": int(time.time() * 1000)
+        })
+        await self.broadcast(response)
 
-    async def connect_user(self, room_code: str, user: User):
-        room = self.get_room(room_code)
-        if room:
-            # Si la sala no está vacía, el líder ya existe
-            # Si está vacía, este será el líder (ya manejado en Room)
-            room.users.append(user)
-            await room.broadcast({"type": "user_joined", "username": user.username})
+    async def notify_new_user(self, username: str, exclude_websocket):
+        message = f"USER_JOINED.{username}"
+        response = json.dumps({
+            "id": 0,
+            "message": message,
+            "timestamp": int(time.time() * 1000)
+        })
+        for u in self.users:
+            if u.websocket != exclude_websocket:
+                try:
+                    await u.websocket.send_text(response)
+                except:
+                    pass
 
-    async def disconnect_user(self, room_code: str, user: User):
-        room = self.get_room(room_code)
-        if room:
-            was_leader = user.is_leader
-            new_leader = room.remove_user(user)
-            await room.broadcast({"type": "user_left", "username": user.username})
-            if was_leader and new_leader:
-                # Notificar nuevo líder
-                await room.broadcast({"type": "new_leader", "username": new_leader.username})
-            # Si la sala queda vacía, se puede eliminar
-            if room.is_empty():
-                del self.rooms[room_code]
+    async def notify_user_removed(self, user: User):
+        message = "REMOVED"
+        response = json.dumps({
+            "id": 0,
+            "message": message,
+            "timestamp": int(time.time() * 1000)
+        })
+        try:
+            await user.websocket.send_text(response)
+            await user.websocket.close()
+        except:
+            pass
 
-    async def broadcast(self, room_code: str, message: dict):
-        room = self.get_room(room_code)
-        if room:
-            await room.broadcast(message)
+    async def broadcast_message(self, sender: str, content: str):
+        msg = json.dumps({
+            "id": 0,
+            "message": f"NEW_MESSAGE.{sender}:{content}",
+            "timestamp": int(time.time() * 1000)
+        })
+        await self.broadcast(msg)

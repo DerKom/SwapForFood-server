@@ -15,3 +15,6 @@ app.add_middleware(
 
 # Incluir rutas
 app.include_router(websocket_routes.router)
+
+#uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+

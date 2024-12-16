@@ -8,30 +8,27 @@ class RoomManager:
 
     def __init__(self):
         self.rooms = {}  # Mapa de salas {codigo_sala: Room}
-        self.ip_to_room = {}  # Mapa de IPs {ip: codigo_sala}
+        self.websocket_to_room = {}  # Mapa de Websockets {websocket: codigo_sala}
 
     async def join_room_with_prefix_0(self, websocket, content: str):
-        # Obtener IP del cliente
-        client_ip = websocket.client.host
-
-        # Comprobar si la IP ya tiene una sala asignada
-        if client_ip in self.ip_to_room:
-            codigo_sala = self.ip_to_room[client_ip]
-            return f"1000Error: La IP {client_ip} ya tiene asignada la sala {codigo_sala}."
+        # Comprobar si el WebSocket ya tiene una sala asignada
+        if websocket in self.websocket_to_room:
+            codigo_sala = self.websocket_to_room[websocket]
+            return f"1000Error: El WebSocket ya tiene asignada la sala {codigo_sala}."
 
         # Extraer nombre de usuario
         username = content[1:]
 
         # Generar un código aleatorio de 5 dígitos único para la sala
         while True:
-            codigo_sala = f"{random.randint(00000, 99999)}"
+            codigo_sala = f"{random.randint(0, 99999):05}"
             if codigo_sala not in self.rooms:
                 break
 
         # Crear una nueva sala
         nueva_sala = Room()
         self.rooms[codigo_sala] = nueva_sala
-        self.ip_to_room[client_ip] = codigo_sala
+        self.websocket_to_room[websocket] = codigo_sala
 
         # Crear un nuevo usuario y hacerlo líder
         user = User(websocket)
@@ -61,6 +58,7 @@ class RoomManager:
             new_user.username = username
             new_user.is_leader = False  # Solo el usuario que crea la sala es líder
             sala.add_user(new_user)
+            self.websocket_to_room[websocket] = roomCode
             await sala.notify_new_user(username, websocket)
 
         # Lista de usuarios
@@ -69,14 +67,10 @@ class RoomManager:
 
     async def remove_user_by_username(self, username: str, websocket):
         # Obtener la sala del usuario que realiza la solicitud
-        client_ip = websocket.client.host
-        roomCode = self.ip_to_room.get(client_ip)
-
-        print("Usuario que vamos a borrar: ", username)
-        print("RoomCode del supuesto lider: ", roomCode)
+        roomCode = self.websocket_to_room.get(websocket)
 
         if not roomCode:
-            return f"1000Error: No se encontró ninguna sala asociada a la IP {client_ip}."
+            return f"1000Error: No se encontró ninguna sala asociada al WebSocket."
 
         sala = self.rooms.get(roomCode)
         if not sala:
@@ -109,6 +103,7 @@ class RoomManager:
 
         # Eliminar al usuario de la sala
         sala.remove_user(user_to_remove)
+        del self.websocket_to_room[user_to_remove.websocket]
 
         # Si la sala está vacía, eliminarla
         if sala.is_empty():
@@ -127,33 +122,9 @@ class RoomManager:
 
         return f"0000"
 
-    async def broadcast_chat_message(self, sender: str, content: str, websocket):
-        # Obtener la sala del usuario que envía el mensaje
-        client_ip = websocket.client.host
-        roomCode = self.ip_to_room.get(client_ip)
-
-        if not roomCode:
-            return f"1000Error: No se encontró ninguna sala asociada a la IP {client_ip}."
-
-        sala = self.rooms.get(roomCode)
-        if not sala:
-            return f"1000Error: La sala con código {roomCode} no existe."
-
-        await sala.broadcast_message(sender, content)
-        return "Mensaje enviado a la sala."
-
-    async def remove_room(self, codigo_sala):
-        # Eliminar la sala y su referencia de IP
-        if codigo_sala in self.rooms:
-            del self.rooms[codigo_sala]
-            self.ip_to_room = {ip: room for ip, room in self.ip_to_room.items() if room != codigo_sala}
-
     async def handle_disconnect(self, websocket):
-        # Obtener la IP del cliente desconectado
-        client_ip = websocket.client.host
-
         # Buscar la sala a la que pertenece el usuario
-        codigo_sala = self.ip_to_room.get(client_ip)
+        codigo_sala = self.websocket_to_room.get(websocket)
         if not codigo_sala:
             return  # El usuario no está asociado a ninguna sala
 
@@ -166,18 +137,22 @@ class RoomManager:
         if not user:
             return  # El usuario no está en la sala (inconsistencia inesperada)
 
+        # Notificar a los demás usuarios que el usuario ha abandonado la sala
+        await sala.notify_user_left(user.username)
+
         # Eliminar al usuario de la sala
         was_leader = user.is_leader
         sala.remove_user(user)
+        del self.websocket_to_room[websocket]
 
         # Si la sala está vacía, eliminarla
         if sala.is_empty():
-            await sala.notify_room_closed()  # Notificar cierre de sala
+            await sala.notify_room_closed()
             await self.remove_room(codigo_sala)
         else:
             # Si el usuario era líder, reasignar liderazgo
             if was_leader:
-                new_leader = sala.users[0]  # Asignar al primer usuario restante
+                new_leader = sala.users[0]
                 new_leader.is_leader = True
                 await sala.broadcast_json({
                     "id": 0,
@@ -185,6 +160,7 @@ class RoomManager:
                     "timestamp": int(time.time() * 1000)
                 })
 
-        # Eliminar la asociación de la IP del cliente
-        if client_ip in self.ip_to_room:
-            del self.ip_to_room[client_ip]
+    async def remove_room(self, codigo_sala):
+        if codigo_sala in self.rooms:
+            del self.rooms[codigo_sala]
+            self.websocket_to_room = {ws: room for ws, room in self.websocket_to_room.items() if room != codigo_sala}

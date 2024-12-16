@@ -1,13 +1,12 @@
 import json
 import time
-from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from managers.room_manager import RoomManager
 
 router = APIRouter()
 
+# Instancia del administrador de salas
 room_manager = RoomManager()
-
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -16,6 +15,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
+            # Recibir mensaje del cliente
             data = await websocket.receive_text()
 
             # Intentar parsear JSON
@@ -28,43 +28,38 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Ignorar mensajes no válidos
                 continue
 
+            # Procesar el mensaje según el prefijo
             if content.startswith("0"):
-                # Crear/unirse a la sala
+                # Crear una sala o unirse a una nueva
                 response_message = await room_manager.join_room_with_prefix_0(websocket, content)
 
-            elif content.startswith("1-"):
-                # Unirse a la sala (similar a '0')
+            elif content.startswith("1"):
+                # Unirse a una sala existente
                 response_message = await room_manager.join_room_with_prefix_1(websocket, content)
-                # Enviar respuesta y continuar
-                resp_json = json.dumps({
-                    "id": message_id,
-                    "message": response_message,
-                    "timestamp": timestamp
-                })
-                message_id += 1
-                await websocket.send_text(resp_json)
-                continue
 
             elif content.startswith("21"):
                 # Eliminar a un usuario por nombre
                 username_to_remove = content[2:]
-                response_message = await room_manager.remove_user_by_username(username_to_remove)
+                response_message = await room_manager.remove_user_by_username(username_to_remove, websocket)
+
+            elif content.startswith("3"):
+                # Enviar un mensaje de chat a la sala
+                message_content = content[1:]  # Eliminar el prefijo "3"
+                response_message = await room_manager.broadcast_chat_message(sender, message_content, websocket)
 
             else:
-                # Mensaje normal de chat
-                response_message = await room_manager.broadcast_chat_message(sender, content)
+                # Comando no reconocido
+                response_message = "1000Error: Comando no reconocido."
 
-            # Enviar respuesta si no es el caso de prefijo "1-" ya enviado
-            if not content.startswith("1-"):
-                resp_json = json.dumps({
-                    "id": message_id,
-                    "message": response_message,
-                    "timestamp": timestamp
-                })
-                message_id += 1
-                await websocket.send_text(resp_json)
+            # Enviar la respuesta al cliente
+            resp_json = json.dumps({
+                "id": message_id,
+                "message": response_message,
+                "timestamp": timestamp
+            })
+            message_id += 1
+            await websocket.send_text(resp_json)
 
     except WebSocketDisconnect:
-        pass
-    finally:
+        # Manejar la desconexión del cliente
         await room_manager.handle_disconnect(websocket)

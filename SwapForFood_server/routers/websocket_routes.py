@@ -2,6 +2,8 @@ import json
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from managers.room_manager import RoomManager
+from models.game import Game
+
 
 router = APIRouter()
 
@@ -46,6 +48,36 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Enviar un mensaje de chat a la sala
                 message_content = content[1:]  # Eliminar el prefijo "3"
                 response_message = await room_manager.broadcast_chat_message(sender, message_content, websocket)
+
+            elif content.startswith("4"):
+                # Iniciar el juego en la sala (solo el líder puede hacerlo)
+                room = room_manager.get_room_by_websocket(websocket)
+                if room:
+                    acting_user = room.get_user_by_websocket(websocket)
+                    if acting_user and acting_user.is_leader:
+                        # Obtener ubicación del líder para buscar restaurantes
+                        leader_location = content[1:]  # Ejemplo: "4lat,lng"
+                        game = Game(leader_location, room)
+                        await game.start()
+                        response_message = "0000GAME_STARTED"
+                    else:
+                        response_message = "1000ERROR: Only the leader can start the game."
+                else:
+                    response_message = "1000ERROR: Room not found."
+
+            elif content.startswith("5"):
+                # Registrar un voto del usuario
+                room = room_manager.get_room_by_websocket(websocket)
+                if room:
+                    acting_user = room.get_user_by_websocket(websocket)
+                    if acting_user:
+                        vote = content[1:]  # Ejemplo: "5like" o "5dislike"
+                        await room.game.register_vote(acting_user.username, vote)
+                        response_message = "VOTE_REGISTERED"
+                    else:
+                        response_message = "ERROR: User not found."
+                else:
+                    response_message = "ERROR: Room not found."
 
             else:
                 # Comando no reconocido

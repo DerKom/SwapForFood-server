@@ -1,7 +1,7 @@
 import asyncio
 import time
 from models.restaurant import Restaurant
-from services.google_maps_service import fetch_restaurants
+from utils.restaurant_fetcher import fetch_restaurants
 
 class Game:
     def __init__(self, leader_location, room, max_time_per_restaurant=10):
@@ -14,6 +14,13 @@ class Game:
         self.start_time = None
 
     async def start(self):
+        # Enviar mensaje de inicio del juego
+        await self.room.broadcast_json({
+            "id": 0,
+            "message": "GAME_START.",
+            "timestamp": int(time.time() * 1000)
+        })
+
         raw_restaurants = await fetch_restaurants(self.leader_location)
         self.restaurants = [Restaurant(**r.to_dict()) for r in raw_restaurants]
         self.votes = {r.id: {} for r in self.restaurants}
@@ -27,8 +34,9 @@ class Game:
         restaurant = self.restaurants[self.current_index]
         self.start_time = time.time()
         await self.room.broadcast_json({
-            "event": "NEW_RESTAURANT",
-            "data": restaurant.to_dict()
+            "id": 0,
+            "data": f"NEW_RESTAURANT.{restaurant.to_dict()}",
+            "timestamp": int(time.time() * 1000)
         })
         asyncio.create_task(self.monitor_time())
 

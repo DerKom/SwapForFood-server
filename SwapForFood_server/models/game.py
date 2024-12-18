@@ -49,12 +49,12 @@ class Game:
             "timestamp": int(time.time() * 1000)
         })
 
-        # Iniciar temporizador de 10 segundos
-        self.timer_task = asyncio.create_task(self.end_game_in_10_seconds())  # <-- LÍNEA AÑADIDA
+        # Iniciar temporizador, 10 segundos por cada restaurante
+        self.timer_task = asyncio.create_task(self.end_game_in_x_seconds(num_restaurants))
 
-    async def end_game_in_10_seconds(self):
+    async def end_game_in_x_seconds(self, numRestaurants):
         # Esperar 10 segundos
-        await asyncio.sleep(10)
+        await asyncio.sleep(numRestaurants * 10)
         # Si aún no se ha terminado el juego, terminarlo
         if not self.game_ended:
             await self.end_game()
@@ -85,8 +85,10 @@ class Game:
             results[r.name] = likes
 
         await self.room.broadcast_json({
-            "event": "GAME_RESULTS",
-            "data": results
+            "id": 0,
+            "message": f"GAME_RESULTS.{results}",
+            "timestamp": int(time.time() * 1000)
         })
+
         # Limpiar la referencia al juego en la sala.
         self.room.game = None

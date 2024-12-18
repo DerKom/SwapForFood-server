@@ -70,7 +70,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     if acting_user:
                         vote_char = content[1]  # '0' o '1'
                         restaurant_id = content[2:]  # El resto del string es la ID
-                        await room.game.register_vote(acting_user.username, vote_char, restaurant_id)  # <-- LÍNEA MODIFICADA: ahora se pasa el ID
+                        await room.game.register_vote(acting_user.username, vote_char, restaurant_id)
                         response_message = "VOTE_REGISTERED"
                     else:
                         response_message = "ERROR: User not found."

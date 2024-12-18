@@ -19,7 +19,7 @@ app.include_router(websocket_routes.router)
 
 if __name__ == "__main__":
     # Configuración para el servidor
-    reload_mode = True  # Cambiar a False si no quieres el modo reload
+    reload_mode = False  # Cambiar a False si no quieres el modo reload
     uvicorn.run(
         "main:app",
         host="0.0.0.0",

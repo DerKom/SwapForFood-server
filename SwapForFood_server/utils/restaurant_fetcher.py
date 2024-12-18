@@ -62,6 +62,12 @@ def fetch_restaurants(location, radius=1000, keyword="restaurant"):
             description="Más datos de prueba.",
             photo_url="https://via.placeholder.com/400"
         ),
+        Restaurant(
+            id="4",
+            name="Restaurante Prueba 4444",
+            description="Más datos de prueba XDD",
+            photo_url="https://via.placeholder.com/400"
+        ),
     ]
 
     """

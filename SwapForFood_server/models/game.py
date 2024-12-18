@@ -66,7 +66,7 @@ class Game:
         Solo se registra el primer voto de cada usuario por restaurante.
         Si se han recibido todos los votos necesarios, termina el juego anticipadamente.
         """
-        
+
         # Validar que el restaurante exista
         if restaurant_id not in self.votes:
             # Opcional: Puedes manejar este caso según tus necesidades

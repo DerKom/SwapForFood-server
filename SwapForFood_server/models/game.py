@@ -1,19 +1,39 @@
-import asyncio
+# models/game.py
+
 import time
 from models.restaurant import Restaurant
 from utils.restaurant_fetcher import fetch_restaurants
+import asyncio  # <-- LÍNEA AÑADIDA: Importar asyncio para poder usar sleep y tareas
+
 
 class Game:
-    def __init__(self, leader_location, room, max_time_per_restaurant=10):
+    def __init__(self, leader_location, room):
         self.leader_location = leader_location
         self.room = room
         self.restaurants = []
-        self.current_index = 0
+        # self.current_index = 0  # <-- LÍNEA ELIMINADA: Ya no usamos current_index porque se envían todos a la vez
         self.votes = {}  # {restaurant_id: {username: vote}}
-        self.max_time = max_time_per_restaurant  # En segundos
-        self.start_time = None
+        # Eliminamos max_time y lógica de temporizador.
+        # self.start_time = None  # <-- LÍNEA ELIMINADA: No lo necesitaremos así
+        self.total_votes_needed = 0  # <-- LÍNEA AÑADIDA: Cantidad total de votos requeridos (usuarios * restaurantes)
+        self.timer_task = None  # <-- LÍNEA AÑADIDA: Guardar referencia a la tarea del temporizador
+        self.game_ended = False  # <-- LÍNEA AÑADIDA: Para evitar terminar el juego más de una vez
 
     async def start(self):
+        # Ahora en lugar de ir restaurante por restaurante, obtenemos todos a la vez
+        raw_restaurants = fetch_restaurants(self.leader_location)
+        self.restaurants = [Restaurant(**r.to_dict()) for r in raw_restaurants]
+
+        # Inicializar el diccionario de votos
+        for r in self.restaurants:
+            self.votes[r.id] = {}
+
+        # Calcular la cantidad total de votos esperada
+        # Todos los usuarios deben votar cada restaurante, así que total_votes = num_usuarios * num_restaurantes
+        num_users = len(self.room.users)
+        num_restaurants = len(self.restaurants)
+        self.total_votes_needed = num_users * num_restaurants
+
         # Enviar mensaje de inicio del juego
         await self.room.broadcast_json({
             "id": 0,
@@ -21,46 +41,52 @@ class Game:
             "timestamp": int(time.time() * 1000)
         })
 
-        raw_restaurants = await fetch_restaurants(self.leader_location)
-        self.restaurants = [Restaurant(**r.to_dict()) for r in raw_restaurants]
-        self.votes = {r.id: {} for r in self.restaurants}
-        await self.send_next_restaurant()
-
-    async def send_next_restaurant(self):
-        if self.current_index >= len(self.restaurants):
-            await self.end_game()
-            return
-
-        restaurant = self.restaurants[self.current_index]
-        self.start_time = time.time()
+        # Enviar en un solo mensaje todos los restaurantes disponibles
+        restaurants_data = [r.to_dict() for r in self.restaurants]
         await self.room.broadcast_json({
-            "id": 0,
-            "data": f"NEW_RESTAURANT.{restaurant.to_dict()}",
+            "id": num_restaurants,
+            "message": f"NEW_RESTAURANT.{restaurants_data}",
             "timestamp": int(time.time() * 1000)
         })
-        asyncio.create_task(self.monitor_time())
 
-    async def monitor_time(self):
-        await asyncio.sleep(self.max_time)
-        if time.time() - self.start_time >= self.max_time:
-            await self.advance_to_next()
+        # Iniciar temporizador de 10 segundos
+        self.timer_task = asyncio.create_task(self.end_game_in_10_seconds())  # <-- LÍNEA AÑADIDA
 
-    async def register_vote(self, username, vote):
-        restaurant_id = self.restaurants[self.current_index].id
-        self.votes[restaurant_id][username] = vote
-        if len(self.votes[restaurant_id]) >= len(self.room.users):
-            await self.advance_to_next()
+    async def end_game_in_10_seconds(self):
+        # Esperar 10 segundos
+        await asyncio.sleep(10)
+        # Si aún no se ha terminado el juego, terminarlo
+        if not self.game_ended:
+            await self.end_game()
 
-    async def advance_to_next(self):
-        self.current_index += 1
-        await self.send_next_restaurant()
+    async def register_vote(self, username, vote, restaurant_id):
+        # Registrar el voto sólo si el usuario no ha votado antes a ese restaurante.
+        if username not in self.votes[restaurant_id]:
+            self.votes[restaurant_id][username] = vote
+        # Comprobar si ya tenemos todos los votos necesarios
+        # Contar total de votos realizados hasta ahora
+        total_cast_votes = sum(len(user_votes) for user_votes in self.votes.values())
+        if total_cast_votes == self.total_votes_needed:
+            # Todos han votado todos los restaurantes
+            if self.timer_task:
+                self.timer_task.cancel()  # Cancelar el temporizador si todavía está en curso
+            await self.end_game()
 
     async def end_game(self):
-        results = {
-            r.name: [user for user, vote in self.votes[r.id].items() if vote == 'like']
-            for r in self.restaurants
-        }
+        if self.game_ended:
+            return  # Si ya se ha terminado, no hacer nada.
+        self.game_ended = True
+
+        # Calcular resultados: cuántos likes tiene cada restaurante
+        results = {}
+        for r in self.restaurants:
+            # Lista de usuarios que han dado like
+            likes = [user for user, v in self.votes[r.id].items() if v == '0']  # '0' significa like
+            results[r.name] = likes
+
         await self.room.broadcast_json({
             "event": "GAME_RESULTS",
             "data": results
         })
+        # Limpiar la referencia al juego en la sala.
+        self.room.game = None

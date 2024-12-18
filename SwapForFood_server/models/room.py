@@ -6,6 +6,7 @@ from .user import User
 class Room:
     def __init__(self):
         self.users: List[User] = []
+        self.game = None  # Agregamos este atributo para almacenar la instancia del juego.
 
     def add_user(self, user: User):
         self.users.append(user)

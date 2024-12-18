@@ -4,6 +4,7 @@ import time
 from models.user import User
 from models.room import Room
 
+
 class RoomManager:
 
     def __init__(self):
@@ -120,6 +121,10 @@ class RoomManager:
                     "timestamp": int(time.time() * 1000)
                 })
 
+        # Si hay un juego en curso, verificar si ahora todos los votos están listos
+        if sala.game is not None:
+            await sala.game.check_results()
+
         return f"0000"
 
     async def handle_disconnect(self, websocket):
@@ -160,7 +165,30 @@ class RoomManager:
                     "timestamp": int(time.time() * 1000)
                 })
 
+        # Si hay un juego en curso, verificar si ahora que se fue un usuario ya se cumplen las condiciones
+        if sala.game is not None:
+            await sala.game.check_results()
+
     async def remove_room(self, codigo_sala):
         if codigo_sala in self.rooms:
             del self.rooms[codigo_sala]
             self.websocket_to_room = {ws: room for ws, room in self.websocket_to_room.items() if room != codigo_sala}
+
+    async def broadcast_chat_message(self, sender: str, content: str, websocket):
+        # Obtener la sala del usuario que realiza la solicitud
+        roomCode = self.websocket_to_room.get(websocket)
+        if not roomCode:
+            return f"1000Error: No se encontró ninguna sala asociada al WebSocket."
+
+        sala = self.rooms.get(roomCode)
+        if not sala:
+            return f"1000Error: La sala con código {roomCode} no existe."
+
+        await sala.broadcast_message(sender, content)
+        return "0000"
+
+    def get_room_by_websocket(self, websocket):
+        codigo_sala = self.websocket_to_room.get(websocket)
+        if not codigo_sala:
+            return None
+        return self.rooms.get(codigo_sala)

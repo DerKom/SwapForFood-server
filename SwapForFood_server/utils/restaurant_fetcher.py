@@ -4,7 +4,7 @@ import math
 from models.restaurant import Restaurant
 
 # Cargar la API Key desde variable de entorno
-API_KEY = "Aqui tu key"
+API_KEY = "<AQUI LA KEY DE GOOGLE>"
 PLACE_TYPE = "restaurant"
 MAX_RESULTS = 2
 

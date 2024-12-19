@@ -1,9 +1,9 @@
-# restaurant.py
 class Restaurant:
-    def __init__(self, id: str, name: str, description: str = "No description available", photo_url: str = ""):
+    def __init__(self, id: str, name: str, rating: str = "N/A", distance: str = "", photo_url: str = ""):
         self.id = id
         self.name = name
-        self.description = description
+        self.rating = rating  # rating en string (ej. "4.5")
+        self.distance = distance  # distancia en km en string (ej. "0.07")
         self.photo_url = photo_url
 
     def to_dict(self):
@@ -13,6 +13,7 @@ class Restaurant:
         return {
             "id": self.id,
             "name": self.name,
-            "description": self.description,
+            "rating": self.rating,
+            "distance": self.distance,
             "photo_url": self.photo_url
         }
